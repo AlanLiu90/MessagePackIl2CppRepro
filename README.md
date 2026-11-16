@@ -9,6 +9,8 @@ generated resolver's first lookup.
 - MessagePack 3.1.12, installed as its README describes: `MessagePack` from NuGet through
   [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity) 4.5.0, plus the `MessagePack.Unity` git package at `#v3.1.12`
 
+[REPORT.md](REPORT.md) compares this with Nerdbank.MessagePack, for one type and for every message in the catalog.
+
 ## Run it
 
 Unity needs `git` to fetch the two git packages, and the IL2CPP module for the editor's platform (on Windows, also
