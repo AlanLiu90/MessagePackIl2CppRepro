@@ -7,13 +7,6 @@
       "dependencies": {},
       "hash": "a7c6b49a0141a5bff9b1983e38137522ef61977d"
     },
-    "com.github.messagepack-csharp": {
-      "version": "https://github.com/MessagePack-CSharp/MessagePack-CSharp.git?path=src/MessagePack.UnityClient/Assets/Scripts/MessagePack#v3.1.12",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {},
-      "hash": "eb108f89700db93e67f10148b777380c244ac6ae"
-    },
     "com.unity.modules.ai": {
       "version": "1.0.0",
       "depth": 0,
