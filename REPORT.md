@@ -24,6 +24,7 @@ payload bytes.
 | IL2CPP classes initialized by those 660 | **18,802** | 97,521 |
 | Whole run: warm-up, `Ping` and all 660 | **40,935 KB** | 375,084 KB |
 | All 660 again | 0 KB, **1.4 ms** | 0 KB, 2.0 ms |
+| Generated IL2CPP C++ (one-type branches) | **205 MB** | 1,241 MB |
 | What a first use pays for | every registration on the first lookup, then the members each message reads | everything the type can reach |
 
 ## Setup
@@ -102,6 +103,28 @@ Nerdbank.MessagePack's total for steps 5 to 9 measured 369,996 KB in one of the 
 | First use of `Ping` | 11,077 KB | 3,798 KB |
 | All 660 messages | 28,498 KB | 369,876 KB |
 | **Whole run** | **40,935 KB** | **375,084 KB** |
+
+### Generated IL2CPP code
+
+The C++ that IL2CPP generates (`.cpp`, `.c` and `.h` files) in the same clean-clone builds, in MB of 10⁶ bytes:
+
+| Branch | Generated C++ | Files |
+|---|---:|---:|
+| `main` | 204.6 MB | 206 |
+| `messagepack-all-messages` | 212.5 MB | 208 |
+| `nerdbank-messagepack` | 1,241.1 MB | 511 |
+| `nerdbank-all-messages` | 1,252.8 MB | 514 |
+
+From the same catalog, Nerdbank.MessagePack generates about six times as much C++. Of the 1,036 MB it adds on
+`nerdbank-messagepack`, 591 MB is generic instantiations (`Generics*.cpp` 408 MB, `GenericMethods*.cpp` 183 MB), 275 MB
+is the catalog's own assembly (`Assembly-CSharp*.cpp`, which holds PolyType's generated shapes), and most of the rest is
+IL2CPP's tables of generic instances and metadata usages. The `-allMessages` code adds 8 MB and 12 MB.
+
+Unity keeps two identical copies of this code for each build: in its build cache
+(`Library/Bee/artifacts/MacStandalonePlayerBuildProgram/il2cppOutput`) and next to the player
+(`Build/StandaloneOSX/MessagePackIl2CppRepro_BackUpThisFolder_ButDontShipItWithYourGame/il2cppOutput`). With everything
+else a build writes, a clean clone of a Nerdbank.MessagePack branch takes about 12 GB after one build, against about
+2.6 GB for a MessagePack-CSharp branch.
 
 ## Why
 
