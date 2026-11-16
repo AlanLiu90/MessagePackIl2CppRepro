@@ -11,11 +11,20 @@ payload bytes.
   MessagePack-CSharp and 3,798 KB with Nerdbank.MessagePack. MessagePack-CSharp's first lookup pays for every type its
   generated resolver knows.
 - **Every message:** deserializing all 660 catalog types once costs 28,498 KB and 74 ms with MessagePack-CSharp, and
-  369,876 KB and 1,243 ms with Nerdbank.MessagePack. With the warm-up and `Ping` steps, that is about 41 MB against about
+  369,876 KB and 1,262 ms with Nerdbank.MessagePack. With the warm-up and `Ping` steps, that is about 41 MB against about
   375 MB.
 - **Why they differ:** MessagePack-CSharp pays a large fixed cost on its first lookup, then only for the types a message
   actually reads. Nerdbank.MessagePack pays, on the first use of a type, for every type that type can reach.
-- **After first use** both cost no more memory, and all 660 messages deserialize again in 1.4 ms and 2.1 ms.
+- **After first use** both cost no more memory, and all 660 messages deserialize again in 1.4 ms and 2.0 ms.
+
+| At a glance | MessagePack-CSharp 3.1.12 | Nerdbank.MessagePack 1.4.104 |
+|---|---:|---:|
+| First use of a one-field type (`Ping`) | 11,077 KB | **3,798 KB** |
+| All 660 catalog types, first time | **28,498 KB, 74 ms** | 369,876 KB, 1,262 ms |
+| IL2CPP classes initialized by those 660 | **18,802** | 97,521 |
+| Whole run: warm-up, `Ping` and all 660 | **40,935 KB** | 375,084 KB |
+| All 660 again | 0 KB, **1.4 ms** | 0 KB, 2.0 ms |
+| What a first use pays for | every registration on the first lookup, then the members each message reads | everything the type can reach |
 
 ## Setup
 
@@ -44,9 +53,10 @@ nil. Both libraries read the same bytes.
 - **IL2CPP counters:** classes initialized, methods, generic classes and inflated methods, from `il2cpp_stats_get_value`.
 - **Time:** `Stopwatch` around each group of all-messages steps. The one-type steps are not timed.
 
-Each player ran three times. Native memory and the IL2CPP counters were identical across runs, except one row noted below;
-the managed heap varied by a few KB, and times by up to 4% (more for steps under a millisecond). The tables give the
-first run's memory and the median time.
+Every number comes from players built from clean clones of the four branches (see [Verification](#verification)), each
+run three times. Native memory and the IL2CPP counters were the same in every run, except Nerdbank.MessagePack's steps 6
+to 8, which varied by up to 128 KB; the managed heap varied by up to about 110 KB, and times by up to 4% (more for steps
+under a millisecond). The tables give the first run's memory and the median time.
 
 ## Results
 
@@ -57,7 +67,7 @@ Branches [`main`](https://github.com/AlanLiu90/MessagePackIl2CppRepro/tree/main)
 
 | Step | MessagePack-CSharp: native | classes | inflated methods | Nerdbank.MessagePack: native | classes | inflated methods |
 |---|---:|---:|---:|---:|---:|---:|
-| 1. Warm-up (`Deserialize<int>` / a type from another assembly) | 1,359 KB | 396 | 2,704 | 1,409 KB | 428 | 3,703 |
+| 1. Warm-up (`Deserialize<int>` / a type from another assembly) | 1,364 KB | 398 | 2,765 | 1,409 KB | 431 | 3,765 |
 | 2. Lookup (`GeneratedMessagePackResolver.GetFormatter<Ping>()` / `TypeShapeResolver.ResolveDynamicOrThrow<Ping>()`) | 11,013 KB | 5,731 | 25,936 | 154 KB | 9 | 45 |
 | 3. `Deserialize<Ping>` #1 | 64 KB | 24 | 93 | 3,644 KB | 44 | 547 |
 | 4. `Deserialize<Ping>` #2 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -74,19 +84,19 @@ steps 1 to 4.
 
 | Step | MessagePack-CSharp: native | managed | classes | time | Nerdbank.MessagePack: native | managed | classes | time |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 5. `Msg0000` | 449 KB | 60 KB | 179 | 0.7 ms | 140,040 KB | 5,844 KB | 36,043 | 375 ms |
-| 6. `Msg0001`–`Msg0009` | 977 KB | 100 KB | 715 | 3.3 ms | 107,724 KB | 4,368 KB | 27,399 | 340 ms |
-| 7. `Msg0010`–`Msg0099` | 6,261 KB | 348 KB | 4,650 | 13.1 ms | 113,235 KB | 5,692 KB | 29,657 | 492 ms |
-| 8. `Msg0100`–`Msg0599` | 20,812 KB | 1,360 KB | 13,251 | 57.3 ms | 8,621 KB | −12 KB | 4,122 | 36 ms |
-| 9. `Pod000`–`Pod059` | 0 | 8 KB | 7 | 0.1 ms | 256 KB | 56 KB | 300 | 0.9 ms |
-| **All 660, first time (5–9)** | **28,498 KB** | 1,876 KB | 18,802 | **74 ms** | **369,876 KB** | 15,948 KB | 97,521 | **1,243 ms** |
-| 10. All 660 again | 0 | 88 KB | 0 | 1.4 ms | 0 | 80 KB | 0 | 2.1 ms |
+| 5. `Msg0000` | 449 KB | 60 KB | 179 | 0.7 ms | 140,040 KB | 5,840 KB | 36,043 | 381 ms |
+| 6. `Msg0001`–`Msg0009` | 977 KB | 104 KB | 715 | 3.3 ms | 107,724 KB | 4,368 KB | 27,399 | 345 ms |
+| 7. `Msg0010`–`Msg0099` | 6,261 KB | 348 KB | 4,650 | 13.2 ms | 113,227 KB | 5,688 KB | 29,657 | 492 ms |
+| 8. `Msg0100`–`Msg0599` | 20,812 KB | 1,352 KB | 13,251 | 56.9 ms | 8,629 KB | 8 KB | 4,122 | 37 ms |
+| 9. `Pod000`–`Pod059` | 0 | 8 KB | 7 | 0.1 ms | 256 KB | 68 KB | 300 | 0.8 ms |
+| **All 660, first time (5–9)** | **28,498 KB** | 1,872 KB | 18,802 | **74 ms** | **369,876 KB** | 15,972 KB | 97,521 | **1,262 ms** |
+| 10. All 660 again | 0 | 88 KB | 0 | 1.4 ms | 0 | 76 KB | 0 | 2.0 ms |
 
-Nerdbank.MessagePack's step 8 measured 8,561 KB and step 9 376 KB in one run each.
+Nerdbank.MessagePack's total for steps 5 to 9 measured 369,996 KB in one of the three runs.
 
 ### In total
 
-| Native memory | MessagePack-CSharp | Nerdbank.MessagePack |
+| Native memory, on the all-messages branches | MessagePack-CSharp | Nerdbank.MessagePack |
 |---|---:|---:|
 | Warm-up | 1,359 KB | 1,409 KB |
 | First use of `Ping` | 11,077 KB | 3,798 KB |
@@ -128,10 +138,22 @@ stay the same with a catalog one-tenth the size while the memory falls from 3,79
 
 ### Time
 
-The first pass takes 74 ms against 1,243 ms. The time falls where the memory does: MessagePack-CSharp spends most of it on
-the 500 messages of step 8 (57 ms), Nerdbank.MessagePack 97% of it on the first 100 messages. This probe does not show
+The first pass takes 74 ms against 1,262 ms. The time falls where the memory does: MessagePack-CSharp spends most of it on
+the 500 messages of step 8 (57 ms), Nerdbank.MessagePack over 96% of it on the first 100 messages. This probe does not show
 where inside each library the time goes. Once every type has been used, both deserialize all 660 messages in about 2 ms
-(1.4 ms and 2.1 ms) and allocate no more native memory.
+(1.4 ms and 2.0 ms) and allocate no more native memory.
+
+## Verification
+
+On 2026-11-17 each branch was cloned fresh from this repository and built in batch mode with
+`Repro.Editor.BuildPlayer.Build`, the method behind **Repro > Build IL2CPP Player**. All four built without errors and left
+their clones unchanged. Each player then ran three times as is, and the two all-messages players three more times with
+`-allMessages`: no run threw, and every one of the 1,320 calls per run returned an object (field values were not checked).
+Memory and the IL2CPP counters matched the first measurement (Nerdbank.MessagePack's steps 6 to 8 within the run-to-run
+variation above), and first-pass times were within 4% of it.
+
+The rerun found one bug in a probe, fixed in `nerdbank-all-messages`: its count of `[GenerateShape]` types included the
+`AllMessages` table and read 662 instead of 661. Only that log line changed.
 
 ## Limitations
 
@@ -156,7 +178,9 @@ where inside each library the time goes. Once every type has been used, both des
 | `nerdbank-messagepack` | Nerdbank.MessagePack, `Ping` |
 | `nerdbank-all-messages` | Nerdbank.MessagePack, `Ping` and `-allMessages` |
 
-Build the player with **Repro > Build IL2CPP Player** (see [README.md](README.md)), then run it:
+Build the player with **Repro > Build IL2CPP Player** (see [README.md](README.md)), then run it. On macOS, Unity runs
+`git` to fetch the git packages; if `xcode-select` points at a broken Command Line Tools install, start Unity with
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 
 ```
 Build/StandaloneOSX/MessagePackIl2CppRepro.app/Contents/MacOS/MessagePackIl2CppRepro -batchmode -nographics -quitAfterProbe [-allMessages] -logFile -
