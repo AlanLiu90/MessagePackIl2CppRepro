@@ -61,6 +61,35 @@ macOS 27 standalone player on Apple silicon; the numbers were identical in every
 | 4. `Deserialize<Ping>` #2 | 0 | 0 | 0 | 0 | 0 | 0 |
 | First use of `Ping` (2 + 3) | 11,077 KB | 224 KB | 5,755 | 20,911 | 5,064 | 26,029 |
 
+
+## Deserializing every message (`-allMessages`)
+
+With `-allMessages`, the probe then deserializes every catalog class (`Msg0000` to `Msg0599`) and struct (`Pod000` to
+`Pod059`) once, in that order, and then all of them again. [`Tools/generate_all_messages.py`](Tools/generate_all_messages.py)
+writes their payloads to `Assets/Scripts/AllMessages.g.cs`: primitives, enums and structs filled in; references,
+collections and nullables nil. Run it after `generate_messages.py` if the catalog changes.
+
+```
+Build/StandaloneOSX/MessagePackIl2CppRepro.app/Contents/MacOS/MessagePackIl2CppRepro -batchmode -nographics -quitAfterProbe -allMessages -logFile -
+```
+
+Same player, after steps 1 to 4; identical in three runs except the time (±5%):
+
+| Step | Native memory | Managed heap | Classes initialized | Methods | Generic classes | Inflated methods | Time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 5. `Msg0000` | 449 KB | 60 KB | 179 | 736 | 218 | 960 | 1 ms |
+| 6. `Msg0001`–`Msg0009` | 977 KB | 100 KB | 715 | 2,908 | 761 | 3,700 | 3 ms |
+| 7. `Msg0010`–`Msg0099` | 6,261 KB | 348 KB | 4,650 | 16,350 | 4,801 | 21,704 | 14 ms |
+| 8. `Msg0100`–`Msg0599` | 20,812 KB | 1,360 KB | 13,251 | 54,394 | 15,177 | 71,712 | 57 ms |
+| 9. `Pod000`–`Pod059` | 0 | 8 KB | 7 | 11 | 6 | 136 | 0.2 ms |
+| 10. All 660 again | 0 | 88 KB | 0 | 0 | 0 | 0 | 1.5 ms |
+| **All 660, first time (5–9)** | **28,498 KB** | 1,876 KB | 18,802 | 74,399 | 20,963 | 98,212 | **76 ms** |
+
+Each message's formatter only resolves the formatters of the members it reads, so the cost grows with the messages
+deserialized. Together with steps 1 to 3, where the first lookup already pays 11 MB for every registration, the whole
+catalog costs about 41 MB of native memory. The `nerdbank-all-messages` branch measures the same thing with
+Nerdbank.MessagePack 1.4.104: about 370 MB and 1.25 s for steps 5 to 9, about 375 MB in all.
+
 ## Why
 
 The source generator emits one resolver per assembly. For this project, MessagePack 3.1.12 generates this helper
@@ -112,8 +141,10 @@ metadata for the life of the process.
 Assets/Scripts/FirstDeserializeProbe.cs   the measurement
 Assets/Scripts/Ping.cs                    the type that is deserialized
 Assets/Scripts/Messages.g.cs              generated message catalog (Tools/generate_messages.py)
+Assets/Scripts/AllMessages.g.cs           a payload and Deserialize call per catalog type, for -allMessages
 Assets/Editor/BuildPlayer.cs              Repro > Build IL2CPP Player
 Tools/generate_messages.py                generates Assets/Scripts/Messages.g.cs
+Tools/generate_all_messages.py            generates Assets/Scripts/AllMessages.g.cs
 Assets/packages.config, NuGet.config      NuGetForUnity: MessagePack 3.1.12 and its dependencies
 Assets/Packages/                          the packages NuGetForUnity installed (see below)
 Packages/manifest.json                    NuGetForUnity 4.5.0 and MessagePack.Unity #v3.1.12 git packages
