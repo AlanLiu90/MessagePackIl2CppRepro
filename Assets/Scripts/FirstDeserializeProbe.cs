@@ -154,13 +154,14 @@ namespace Repro
                           $"{(long)(b.InflatedMethods - a.InflatedMethods)}");
         }
 
-        // [GenerateShape] is not kept in metadata, so count the classes and structs it is applied to: the catalog and Ping.
+        // [GenerateShape] is not kept in metadata, so count the classes and structs it is applied to: the catalog and Ping,
+        // not the AllMessages table that shares the catalog's namespace.
         private static string CountShapedTypes()
         {
             try
             {
                 int count = typeof(Ping).Assembly.GetTypes()
-                    .Count(t => !t.IsNested && !t.IsEnum && (t.Namespace == "Repro.Messages" || t == typeof(Ping)));
+                    .Count(t => !t.IsNested && !t.IsEnum && t != typeof(AllMessages) && (t.Namespace == "Repro.Messages" || t == typeof(Ping)));
                 return count.ToString("N0");
             }
             catch (Exception e)
