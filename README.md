@@ -81,18 +81,50 @@ What allocates those 3.6 MB has not been identified. Two things were ruled out:
   memory and 248 KB of managed heap, and `Deserialize<Ping>` does not call it.
 
 
+## Deserializing every message (`-allMessages`)
+
+With `-allMessages`, the probe then deserializes every catalog class (`Msg0000` to `Msg0599`) and struct (`Pod000` to
+`Pod059`) once, in that order, and then all of them again. [`Tools/generate_all_messages.py`](Tools/generate_all_messages.py)
+writes their payloads to `Assets/Scripts/AllMessages.g.cs`: primitives, enums and structs filled in; references,
+collections and nullables nil, as MessagePack-CSharp writes `[Key]` types. Run it after `generate_messages.py` if the
+catalog changes.
+
+```
+Build/StandaloneOSX/MessagePackIl2CppRepro.app/Contents/MacOS/MessagePackIl2CppRepro -batchmode -nographics -quitAfterProbe -allMessages -logFile -
+```
+
+Same player, after steps 1 to 4; identical in three runs except the time (±2%):
+
+| Step | Native memory | Managed heap | Classes initialized | Methods | Generic classes | Inflated methods | Time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 5. `Msg0000` | 140,040 KB | 5,844 KB | 36,043 | 347,889 | 83,946 | 422,380 | 386 ms |
+| 6. `Msg0001`–`Msg0009` | 107,724 KB | 4,368 KB | 27,399 | 267,013 | 64,853 | 323,312 | 340 ms |
+| 7. `Msg0010`–`Msg0099` | 113,235 KB | 5,692 KB | 29,657 | 283,568 | 67,413 | 343,731 | 490 ms |
+| 8. `Msg0100`–`Msg0599` | 8,621 KB | 0 | 4,122 | 17,054 | 4,862 | 27,062 | 37 ms |
+| 9. `Pod000`–`Pod059` | 256 KB | 56 KB | 300 | 300 | 180 | 1,140 | 1 ms |
+| 10. All 660 again | 0 | 80 KB | 0 | 0 | 0 | 0 | 2 ms |
+| **All 660, first time (5–9)** | **369,876 KB** | 15,948 KB | 97,521 | 915,824 | 221,254 | 1,117,625 | **1,254 ms** |
+
+Building a converter builds converters for every type it can reach, so the cost lands on the first message of each part
+of the graph: `Msg0000` alone reaches much of the catalog, and the first 100 messages (the catalog's top layer) reach
+nearly all of it, which leaves little for the other 500. Together with steps 1 to 3, the whole catalog costs about 375 MB
+of native memory. The `messagepack-all-messages` branch measures the same with MessagePack-CSharp 3.1.12:
+28,498 KB and 76 ms for steps 5 to 9, about 41 MB in all.
+
 ## Layout
 
 ```
 Assets/Scripts/FirstDeserializeProbe.cs   the measurement
 Assets/Scripts/Ping.cs                    the type that is deserialized
 Assets/Scripts/Messages.g.cs              generated message catalog (Tools/generate_messages.py)
+Assets/Scripts/AllMessages.g.cs           a payload and Deserialize call per catalog type, for -allMessages
 Assets/WarmUp/                            WarmUpMessage, in its own assembly (Repro.WarmUp.asmdef)
 Assets/Editor/BuildPlayer.cs              Repro > Build IL2CPP Player
 Assets/packages.config, NuGet.config      NuGetForUnity: Nerdbank.MessagePack 1.4.104 and its dependencies
 Assets/Packages/                          the packages NuGetForUnity installed (see below)
 Packages/manifest.json                    NuGetForUnity 4.5.0 git package
 Tools/generate_messages.py                generates Assets/Scripts/Messages.g.cs
+Tools/generate_all_messages.py            generates Assets/Scripts/AllMessages.g.cs
 ```
 
 `Assets/Packages` is included on purpose: the scripts do not compile without it, and while there are compile errors on
