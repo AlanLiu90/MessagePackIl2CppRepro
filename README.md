@@ -90,6 +90,23 @@ deserialized. Together with steps 1 to 3, where the first lookup already pays 11
 catalog costs about 41 MB of native memory. The `nerdbank-all-messages` branch measures the same thing with
 Nerdbank.MessagePack 1.4.104: about 370 MB and 1.25 s for steps 5 to 9, about 375 MB in all.
 
+## NativeAOT (`NativeAot/`)
+
+[`NativeAot/`](NativeAot) is the probe as a .NET 10 console app: it compiles `Assets/Scripts/Messages.g.cs`, `Ping.cs` and
+`AllMessages.g.cs` and runs the same steps under NativeAOT. It needs the .NET 10 SDK, and reads the process footprint with
+`proc_pid_rusage`, so it runs on macOS:
+
+```
+dotnet publish NativeAot -c Release -r osx-arm64 -o NativeAot/out
+NativeAot/out/MessagePackIl2CppRepro.NativeAot
+```
+
+`dotnet build NativeAot -c Release -o NativeAot/out-jit` builds the same app for the JIT runtime. It differs from the Unity
+probe in that the generated resolver goes before `StandardResolver`, since NativeAOT cannot run its dynamic
+fallbacks (so the resolver's first lookup happens in the warm-up), every step is timed, and it reports the process footprint, the managed heap and the managed bytes
+allocated per step, then what is still held after a full GC and the peak footprint.
+[REPORT.md](https://github.com/AlanLiu90/MessagePackIl2CppRepro/blob/main/REPORT.md) on `main` has the results.
+
 ## Why
 
 The source generator emits one resolver per assembly. For this project, MessagePack 3.1.12 generates this helper
@@ -145,6 +162,7 @@ Assets/Scripts/AllMessages.g.cs           a payload and Deserialize call per cat
 Assets/Editor/BuildPlayer.cs              Repro > Build IL2CPP Player
 Tools/generate_messages.py                generates Assets/Scripts/Messages.g.cs
 Tools/generate_all_messages.py            generates Assets/Scripts/AllMessages.g.cs
+NativeAot/                                the probe as a .NET 10 NativeAOT console app
 Assets/packages.config, NuGet.config      NuGetForUnity: MessagePack 3.1.12 and its dependencies
 Assets/Packages/                          the packages NuGetForUnity installed (see below)
 Packages/manifest.json                    NuGetForUnity 4.5.0 and MessagePack.Unity #v3.1.12 git packages
