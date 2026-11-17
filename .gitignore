@@ -8,6 +8,11 @@
 /.idea/
 *.csproj
 *.sln
+# NativeAot/ is a .NET project, not one Unity generates
+!/NativeAot/**/*.csproj
+/NativeAot/**/bin/
+/NativeAot/**/obj/
+/NativeAot/out*/
 .DS_Store
 
 # Assets/Packages (NuGet packages installed by NuGetForUnity) is kept on purpose: MessagePack.Unity does not compile

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Assets/WarmUp as its own assembly, as in Unity, so warming up touches none of the catalog's shapes. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Assets/WarmUp/WarmUpMessage.cs" Link="WarmUpMessage.cs" />
+    <PackageReference Include="Nerdbank.MessagePack" Version="1.4.104" />
+    <PackageReference Include="PolyType" Version="1.4.1" />
+  </ItemGroup>
+</Project>

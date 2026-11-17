@@ -111,6 +111,23 @@ nearly all of it, which leaves little for the other 500. Together with steps 1 t
 of native memory. The `messagepack-all-messages` branch measures the same with MessagePack-CSharp 3.1.12:
 28,498 KB and 76 ms for steps 5 to 9, about 41 MB in all.
 
+## NativeAOT (`NativeAot/`)
+
+[`NativeAot/`](NativeAot) is the probe as a .NET 10 console app: it compiles `Assets/Scripts/Messages.g.cs`, `Ping.cs` and
+`AllMessages.g.cs` and runs the same steps under NativeAOT. It needs the .NET 10 SDK, and reads the process footprint with
+`proc_pid_rusage`, so it runs on macOS:
+
+```
+dotnet publish NativeAot -c Release -r osx-arm64 -o NativeAot/out
+NativeAot/out/MessagePackIl2CppRepro.NativeAot
+```
+
+`dotnet build NativeAot -c Release -o NativeAot/out-jit` builds the same app for the JIT runtime. It differs from the Unity
+probe in that `Ping`'s shape comes from `IShapeable<Ping>.GetTypeShape()`, the source-generated path on .NET,
+instead of `TypeShapeResolver.ResolveDynamicOrThrow<Ping>()`; `NativeAot/WarmUp/` builds `Assets/WarmUp` as its own assembly, every step is timed, and it reports the process footprint, the managed heap and the managed bytes
+allocated per step, then what is still held after a full GC and the peak footprint.
+[REPORT.md](https://github.com/AlanLiu90/MessagePackIl2CppRepro/blob/main/REPORT.md) on `main` has the results.
+
 ## Layout
 
 ```
@@ -125,6 +142,7 @@ Assets/Packages/                          the packages NuGetForUnity installed (
 Packages/manifest.json                    NuGetForUnity 4.5.0 git package
 Tools/generate_messages.py                generates Assets/Scripts/Messages.g.cs
 Tools/generate_all_messages.py            generates Assets/Scripts/AllMessages.g.cs
+NativeAot/                                the probe as a .NET 10 NativeAOT console app
 ```
 
 `Assets/Packages` is included on purpose: the scripts do not compile without it, and while there are compile errors on
