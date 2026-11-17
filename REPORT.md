@@ -16,6 +16,8 @@ payload bytes.
 - **Why they differ:** MessagePack-CSharp pays a large fixed cost on its first lookup, then only for the types a message
   actually reads. Nerdbank.MessagePack pays, on the first use of a type, for every type that type can reach.
 - **After first use** both cost no more memory, and all 660 messages deserialize again in 1.4 ms and 2.0 ms.
+- **NativeAOT (.NET 10)** shows the same difference: all 660 types cost 12,320 KB and 24 ms with MessagePack-CSharp,
+  and 236,640 KB and 1,636 ms with Nerdbank.MessagePack, most of it in NativeAOT's runtime type loader.
 
 | At a glance | MessagePack-CSharp 3.1.12 | Nerdbank.MessagePack 1.4.104 |
 |---|---:|---:|
@@ -25,6 +27,7 @@ payload bytes.
 | Whole run: warm-up, `Ping` and all 660 | **40,935 KB** | 375,084 KB |
 | All 660 again | 0 KB, **1.4 ms** | 0 KB, 2.0 ms |
 | Generated IL2CPP C++ (one-type branches) | **205 MB** | 1,241 MB |
+| NativeAOT: all 660, first time (footprint, time) | **12,320 KB, 24 ms** | 236,640 KB, 1,636 ms |
 | What a first use pays for | every registration on the first lookup, then the members each message reads | everything the type can reach |
 
 ## Setup
@@ -166,6 +169,60 @@ the 500 messages of step 8 (57 ms), Nerdbank.MessagePack over 96% of it on the f
 where inside each library the time goes. Once every type has been used, both deserialize all 660 messages in about 2 ms
 (1.4 ms and 2.0 ms) and allocate no more native memory.
 
+## NativeAOT
+
+The two all-messages branches also hold the probe as a .NET 10 console app, in `NativeAot/`. It compiles the same
+`Messages.g.cs`, `Ping.cs` and `AllMessages.g.cs` and runs the same steps under NativeAOT, on .NET 10.0.13 for osx-arm64
+on the same Mac. There is no IL2CPP VM here: memory is the process's physical footprint (`proc_pid_rusage`, what macOS
+and iOS count against an app), the managed heap, and the managed bytes allocated. It differs from the Unity probe in three
+ways:
+
+- MessagePack-CSharp's generated resolver goes before `StandardResolver`, because NativeAOT cannot run its dynamic
+  fallbacks. Its first lookup therefore happens in the warm-up.
+- Nerdbank.MessagePack takes `Ping`'s shape from `IShapeable<Ping>.GetTypeShape()`, its source-generated path on .NET,
+  instead of the reflection-based `TypeShapeResolver.ResolveDynamicOrThrow<Ping>()`.
+- Every step is timed.
+
+Each row is the median of three runs, so the step rows need not add up to the total; every run deserialized all 1,320
+calls.
+
+| NativeAOT step | MessagePack-CSharp: footprint | managed allocated | time | Nerdbank.MessagePack: footprint | managed allocated | time |
+|---|---:|---:|---:|---:|---:|---:|
+| 1. Warm-up | 144 KB | 147 KB | 0.11 ms | 1,136 KB | 880 KB | 0.96 ms |
+| First use of `Ping` (2 + 3) | 32 KB | 12 KB | 0.04 ms | 704 KB | 684 KB | 0.65 ms |
+| 5. `Msg0000` | 192 KB | 186 KB | 0.21 ms | 82,816 KB | 477,464 KB | 527 ms |
+| 6. `Msg0001`–`Msg0009` | 848 KB | 812 KB | 0.72 ms | 69,216 KB | 418,695 KB | 520 ms |
+| 7. `Msg0010`–`Msg0099` | 6,096 KB | 5,913 KB | 5.2 ms | 74,016 KB | 447,837 KB | 558 ms |
+| 8. `Msg0100`–`Msg0599` | 5,168 KB | 19,574 KB | 18.1 ms | 10,544 KB | 28,720 KB | 36 ms |
+| 9. `Pod000`–`Pod059` | 0 | 293 KB | 0.3 ms | 0 | 4 KB | 0.1 ms |
+| **All 660, first time (5–9)** | **12,320 KB** | 26,850 KB | **24 ms** | **236,640 KB** | 1,372,750 KB | **1,636 ms** |
+| 10. All 660 again | 480 KB | 4,071 KB | 5.2 ms | 0 | 73 KB | 1.4 ms |
+| Managed heap still held after a full GC at the end | 3,288 KB | | | 208,512 KB | | |
+| Peak process footprint | 20,865 KB | | | 259,313 KB | | |
+| Executable (stripped; symbols in a separate `.dSYM`) | 11,645,424 B | | | 57,282,496 B | | |
+
+The same projects built for the JIT runtime (`dotnet build`), for comparison:
+
+| CoreCLR JIT, all 660 first time | MessagePack-CSharp | Nerdbank.MessagePack |
+|---|---:|---:|
+| Footprint / managed allocated / time | 10,240 KB / 1,380 KB / 129 ms | 104,768 KB / 11,836 KB / 1,635 ms |
+| Managed heap still held after a full GC | 909 KB | 16,424 KB |
+
+- **MessagePack-CSharp** has no 11 MB first lookup on NativeAOT, because every type is compiled into the executable; its
+  `typeof` table costs only the dictionary, part of the 144 KB warm-up.
+- **Nerdbank.MessagePack** costs 237 MB and keeps 208 MB of managed objects after a full GC, against 16 MB on the JIT
+  runtime. A Time Profiler capture puts 94% of the main thread under `TypeLoaderExports.GVMLookupForSlotSlow` →
+  `TypeLoaderEnvironment.ResolveGenericVirtualMethodTarget`, called from `StandardVisitor`'s `VisitObject`,
+  `VisitProperty`, `VisitDictionary` and `VisitEnumerable` through PolyType's shape `Accept` methods. A generic virtual
+  method instantiation over new type arguments, such as `VisitProperty<TDeclaringType, TPropertyType>` for each property,
+  is not compiled ahead of time, so NativeAOT's type loader builds it and its generic dictionaries on first call
+  (`TypeBuilder.BuildMethod` 74% of the samples, `GenericDictionaryCell.BuildDictionary` 62%), and garbage collection
+  takes 30%. It is the NativeAOT counterpart of IL2CPP's runtime generic inflation. The profile measures time, not
+  memory, but since the same code allocates 116 times less under the JIT runtime, most of the 1.37 GB allocated and
+  208 MB kept is likely the type loader's.
+- MessagePack-CSharp also allocates more under NativeAOT than under the JIT runtime: 26,850 KB against 1,380 KB on the
+  first pass, and 4,071 KB against 73 KB on the second. That was not profiled.
+
 ## Verification
 
 On 2026-11-17 each branch was cloned fresh from this repository and built in batch mode with
@@ -174,6 +231,9 @@ their clones unchanged. Each player then ran three times as is, and the two all-
 `-allMessages`: no run threw, and every one of the 1,320 calls per run returned an object (field values were not checked).
 Memory and the IL2CPP counters matched the first measurement (Nerdbank.MessagePack's steps 6 to 8 within the run-to-run
 variation above), and first-pass times were within 4% of it.
+
+The NativeAOT apps were built from the two all-messages branches and run three times each, under NativeAOT and under the
+JIT runtime: every run deserialized all 1,320 calls to non-null objects.
 
 The rerun found one bug in a probe, fixed in `nerdbank-all-messages`: its count of `[GenerateShape]` types included the
 `AllMessages` table and read 662 instead of 661. Only that log line changed.
@@ -197,9 +257,9 @@ The rerun found one bug in a probe, fixed in `nerdbank-all-messages`: its count 
 | Branch | What it measures |
 |---|---|
 | `main` | MessagePack-CSharp, `Ping` |
-| `messagepack-all-messages` | MessagePack-CSharp, `Ping` and `-allMessages` |
+| `messagepack-all-messages` | MessagePack-CSharp, `Ping` and `-allMessages`; NativeAOT app in `NativeAot/` |
 | `nerdbank-messagepack` | Nerdbank.MessagePack, `Ping` |
-| `nerdbank-all-messages` | Nerdbank.MessagePack, `Ping` and `-allMessages` |
+| `nerdbank-all-messages` | Nerdbank.MessagePack, `Ping` and `-allMessages`; NativeAOT app in `NativeAot/` |
 
 Build the player with **Repro > Build IL2CPP Player** (see [README.md](README.md)), then run it. On macOS, Unity runs
 `git` to fetch the git packages; if `xcode-select` points at a broken Command Line Tools install, start Unity with
@@ -207,4 +267,11 @@ Build the player with **Repro > Build IL2CPP Player** (see [README.md](README.md
 
 ```
 Build/StandaloneOSX/MessagePackIl2CppRepro.app/Contents/MacOS/MessagePackIl2CppRepro -batchmode -nographics -quitAfterProbe [-allMessages] -logFile -
+```
+
+The NativeAOT app, on an all-messages branch, with the .NET 10 SDK:
+
+```
+dotnet publish NativeAot -c Release -r osx-arm64 -o NativeAot/out
+NativeAot/out/MessagePackIl2CppRepro.NativeAot
 ```
